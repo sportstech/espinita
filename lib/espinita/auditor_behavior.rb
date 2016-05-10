@@ -5,6 +5,7 @@ module Espinita
     included do
       class_attribute  :excluded_cols
       class_attribute  :audit_callbacks
+      class_attribute  :audit_version
       attr_accessor :audit_comment
     end
 
@@ -32,6 +33,10 @@ module Espinita
         if options[:except]
           options[:except] = [options[:except]].flatten.map { |x| x.to_s }
           self.excluded_cols = (@@default_excluded) + options[:except]
+        end
+        
+        if options[:version]
+          self.audit_version = options[:version].to_sym
         end
 
         has_many :audits, :as => :auditable, :class_name => Espinita::Audit.name
@@ -159,6 +164,7 @@ module Espinita
 
     def write_audit(options)
       return if self.class.skip_audits?
+      options[:version] = self.send(self.audit_version) if self.audit_version
       self.audits.create(options) unless options[:audited_changes].blank?
     end
 
