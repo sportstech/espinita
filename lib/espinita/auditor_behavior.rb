@@ -6,6 +6,7 @@ module Espinita
       class_attribute  :excluded_cols
       class_attribute  :audit_callbacks
       class_attribute  :audit_version
+      class_attribute  :manual_increment_version
       attr_accessor :audit_comment
     end
 
@@ -18,7 +19,13 @@ module Espinita
         self.audit_callbacks = []
         self.audit_callbacks << options[:on] unless options[:on].blank?
         self.audit_callbacks.flatten!
-
+        
+        if options[:version]
+          self.audit_version = options[:version].to_sym
+          self.manual_increment_version = !!options[:manual_increment_version]
+        end
+        
+        before_create  :increment_version  if self.audit_callbacks.blank? || self.audit_callbacks.include?(:create)
         after_create   :audit_create  if self.audit_callbacks.blank? || self.audit_callbacks.include?(:create)
         before_update  :audit_update  if self.audit_callbacks.blank? || self.audit_callbacks.include?(:update)
         before_destroy :audit_destroy if self.audit_callbacks.blank? || self.audit_callbacks.include?(:destroy)
@@ -33,10 +40,6 @@ module Espinita
         if options[:except]
           options[:except] = [options[:except]].flatten.map { |x| x.to_s }
           self.excluded_cols = (@@default_excluded) + options[:except]
-        end
-        
-        if options[:version]
-          self.audit_version = options[:version].to_sym
         end
 
         has_many :audits, :as => :auditable, :class_name => Espinita::Audit.name
@@ -139,7 +142,14 @@ module Espinita
     def audited_hash
       Hash[ audited_attributes.map{|o| [o.to_sym, self.changes[o.to_sym] ] } ]
     end
-
+    
+    def increment_version
+      if self.audit_version && !self.manual_increment_version && !self.changes.key?(self.audit_version)
+        attrs = {}
+        attrs[self.audit_version] = self.send(self.audit_version).to_i + 1
+        self.assign_attributes(attrs)
+      end
+    end
 
     def audit_create
       #puts self.class.audit_callbacks
@@ -150,12 +160,14 @@ module Espinita
 
     def audit_update
       #puts self.class.audit_callbacks
+      increment_version
       write_audit(:action => 'update',
                   :audited_changes => audited_hash,
                   :comment => audit_comment)
     end
 
     def audit_destroy
+      increment_version
       comment_description = ["deleted model #{id}", audit_comment].join(": ")
       write_audit(:action => 'destroy',
                   :audited_changes => self.attributes,
